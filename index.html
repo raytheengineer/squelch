@@ -796,8 +796,15 @@ async function connect(channelCode) {
 
   showOverlay('Joining channel...');
 
+  const relayUrls = [
+    'wss://relay.damus.io',
+    'wss://relay.nostr.band',
+    'wss://nos.lol',
+    'wss://relay.snort.social',
+  ];
+
   try {
-    room = joinRoom({ appId: 'squelch-p2p-radio-v1' }, channelCode);
+    room = joinRoom({ appId: 'squelch-p2p-radio-v1', relayUrls }, channelCode);
   } catch (e) {
     hideOverlay();
     showError('Failed to connect: ' + (e?.message || String(e)));
@@ -805,7 +812,7 @@ async function connect(channelCode) {
     return;
   }
 
-  // Switch screens IMMEDIATELY — nothing below should be able to re-hang the UI
+  // Switch screens IMMEDIATELY
   hideOverlay();
   entryScreen.style.display = 'none';
   radioScreen.style.display = 'flex';
@@ -814,11 +821,36 @@ async function connect(channelCode) {
 
   selfId = room.selfId || null;
 
+  // Advertise our mic stream to all peers (current + future) — call once, Trystero handles the rest
+  try {
+    room.addStream(micStream);
+  } catch(e) { console.warn('addStream failed', e); }
+
+  // Register onStream BEFORE onPeerJoin so handler exists when streams arrive
+  room.onStream((incomingStream, peerId) => {
+    if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
+    const state = peers.get(peerId);
+    if (!state.audioEl) {
+      state.audioEl = document.createElement('audio');
+      state.audioEl.autoplay = true;
+      state.audioEl.playsInline = true;
+      document.body.appendChild(state.audioEl);
+    }
+    state.audioEl.srcObject = incomingStream;
+    // Unlock autoplay — browsers require a prior user gesture; the Connect button click satisfies this
+    state.audioEl.play().catch(err => {
+      console.warn('Autoplay blocked, will retry on next user gesture:', err);
+      // Queue a retry on next interaction
+      const retry = () => { state.audioEl.play().catch(() => {}); document.removeEventListener('click', retry); document.removeEventListener('touchend', retry); };
+      document.addEventListener('click', retry, { once: true });
+      document.addEventListener('touchend', retry, { once: true });
+    });
+    renderPeerList();
+  });
+
   // Peer presence
   room.onPeerJoin(peerId => {
     peers.set(peerId, { transmitting: false, audioEl: null });
-    // Push our stream to the newly joined peer
-    try { addStreamFn?.(micStream, [peerId]); } catch(e) { console.warn('addStream to new peer failed', e); }
     renderPeerList();
   });
 
@@ -841,24 +873,6 @@ async function connect(channelCode) {
       updateStatusDisplay();
     });
   } catch(e) { console.warn('makeAction failed', e); }
-
-  // Audio stream setup
-  try {
-    const [addStream, onStream] = room.addStream();
-    addStreamFn = addStream;
-    onStream((incomingStream, peerId) => {
-      if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
-      const state = peers.get(peerId);
-      if (!state.audioEl) {
-        state.audioEl = new Audio();
-        state.audioEl.autoplay = true;
-        document.body.appendChild(state.audioEl);
-      }
-      state.audioEl.srcObject = incomingStream;
-      state.audioEl.play().catch(() => {});
-      renderPeerList();
-    });
-  } catch(e) { console.warn('addStream setup failed', e); }
 
   startVU(micStream);
   renderPeerList();
