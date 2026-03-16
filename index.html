@@ -800,72 +800,66 @@ async function connect(channelCode) {
     room = joinRoom({ appId: 'squelch-p2p-radio-v1' }, channelCode);
   } catch (e) {
     hideOverlay();
-    showError('Failed to connect. Check your network and try again.');
+    showError('Failed to connect: ' + (e?.message || String(e)));
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
     return;
   }
 
-  // Grab selfId — Trystero exposes it on the room
+  // Switch screens IMMEDIATELY — nothing below should be able to re-hang the UI
+  hideOverlay();
+  entryScreen.style.display = 'none';
+  radioScreen.style.display = 'flex';
+  channelDisplay.textContent = channelCode.toUpperCase();
+  pttBtn.disabled = false;
+
   selfId = room.selfId || null;
 
-  // Peer events
+  // Peer presence
   room.onPeerJoin(peerId => {
     peers.set(peerId, { transmitting: false, audioEl: null });
+    // Push our stream to the newly joined peer
+    try { addStreamFn?.(micStream, [peerId]); } catch(e) { console.warn('addStream to new peer failed', e); }
     renderPeerList();
   });
 
   room.onPeerLeave(peerId => {
     const state = peers.get(peerId);
-    if (state?.audioEl) {
-      state.audioEl.srcObject = null;
-      state.audioEl.remove();
-    }
+    if (state?.audioEl) { state.audioEl.srcObject = null; state.audioEl.remove(); }
     peers.delete(peerId);
     renderPeerList();
     updateStatusDisplay();
   });
 
   // Status data channel
-  const [sendStatus, onStatus] = room.makeAction('status');
-  sendStatusFn = sendStatus;
+  try {
+    const [sendStatus, onStatus] = room.makeAction('status');
+    sendStatusFn = sendStatus;
+    onStatus((data, peerId) => {
+      if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
+      peers.get(peerId).transmitting = !!data.transmitting;
+      renderPeerList();
+      updateStatusDisplay();
+    });
+  } catch(e) { console.warn('makeAction failed', e); }
 
-  onStatus((data, peerId) => {
-    if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
-    peers.get(peerId).transmitting = !!data.transmitting;
-    renderPeerList();
-    updateStatusDisplay();
-  });
+  // Audio stream setup
+  try {
+    const [addStream, onStream] = room.addStream();
+    addStreamFn = addStream;
+    onStream((incomingStream, peerId) => {
+      if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
+      const state = peers.get(peerId);
+      if (!state.audioEl) {
+        state.audioEl = new Audio();
+        state.audioEl.autoplay = true;
+        document.body.appendChild(state.audioEl);
+      }
+      state.audioEl.srcObject = incomingStream;
+      state.audioEl.play().catch(() => {});
+      renderPeerList();
+    });
+  } catch(e) { console.warn('addStream setup failed', e); }
 
-  // Audio stream
-  const [addStream, onStream] = room.addStream();
-  addStreamFn = addStream;
-
-  // Share our mic stream (muted until PTT)
-  addStream(micStream);
-
-  onStream((incomingStream, peerId) => {
-    if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
-    const state = peers.get(peerId);
-
-    // Reuse or create audio element
-    if (!state.audioEl) {
-      state.audioEl = new Audio();
-      state.audioEl.autoplay = true;
-      document.body.appendChild(state.audioEl);
-    }
-    state.audioEl.srcObject = incomingStream;
-    state.audioEl.play().catch(() => {});
-
-    renderPeerList();
-  });
-
-  // Switch screens
-  hideOverlay();
-  entryScreen.style.display = 'none';
-  radioScreen.style.display = 'flex';
-  channelDisplay.textContent = channelCode.toUpperCase();
-
-  pttBtn.disabled = false;
   startVU(micStream);
   renderPeerList();
   updateStatusDisplay();
