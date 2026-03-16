@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>SQUELCH — P2P Radio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #111213;
+      --panel:     #1c1e20;
+      --panel2:    #232628;
+      --border:    #2e3135;
+      --amber:     #f5a623;
+      --amber-dim: #7a5010;
+      --green:     #39ff6a;
+      --green-dim: #0f4020;
+      --red:       #ff4040;
+      --text:      #d4c9b0;
+      --text-dim:  #5a5650;
+      --mono:      'Share Tech Mono', monospace;
+      --ui:        'Barlow Condensed', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--ui);
+      overflow: hidden;
+    }
+
+    /* ── NOISE OVERLAY ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.025;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    /* ════════════════════════════════
+       ENTRY SCREEN
+    ════════════════════════════════ */
+    #entry-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 0;
+      padding: 24px;
+    }
+
+    .logo {
+      font-family: var(--ui);
+      font-weight: 800;
+      font-size: clamp(52px, 12vw, 88px);
+      letter-spacing: 0.12em;
+      color: var(--amber);
+      text-shadow: 0 0 40px rgba(245,166,35,0.4), 0 0 80px rgba(245,166,35,0.15);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .logo-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 48px;
+    }
+
+    .entry-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .field-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .channel-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 20px;
+      letter-spacing: 0.12em;
+      color: var(--amber);
+      text-transform: uppercase;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .channel-input::placeholder { color: var(--amber-dim); }
+
+    .channel-input:focus {
+      border-color: var(--amber-dim);
+      box-shadow: 0 0 0 2px rgba(245,166,35,0.08);
+    }
+
+    .channel-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: -12px;
+      line-height: 1.5;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-gen {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      padding: 10px 14px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-gen:hover { border-color: var(--text-dim); color: var(--text); }
+
+    .btn-connect {
+      flex: 1;
+      background: var(--amber);
+      border: none;
+      color: #1a1000;
+      font-family: var(--ui);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      padding: 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn-connect:hover { opacity: 0.88; }
+    .btn-connect:active { transform: scale(0.98); }
+    .btn-connect:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .error-msg {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--red);
+      letter-spacing: 0.05em;
+      min-height: 16px;
+      text-align: center;
+    }
+
+    /* ════════════════════════════════
+       RADIO SCREEN
+    ════════════════════════════════ */
+    #radio-screen {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 16px;
+      gap: 14px;
+    }
+
+    /* ── TOP BAR ── */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .top-logo {
+      font-family: var(--ui);
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: 0.12em;
+      color: var(--amber);
+    }
+
+    .btn-disconnect {
+      background: transparent;
+      border: 1px solid #3a2020;
+      color: #6a3030;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      padding: 6px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      text-transform: uppercase;
+    }
+    .btn-disconnect:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── CHANNEL DISPLAY ── */
+    .display-panel {
+      background: #0a0c08;
+      border: 1px solid #1e2418;
+      border-radius: 4px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .channel-readout {
+      flex: 1;
+    }
+
+    .readout-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.3em;
+      color: #3a5028;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .readout-value {
+      font-family: var(--mono);
+      font-size: 22px;
+      letter-spacing: 0.1em;
+      color: var(--green);
+      text-shadow: 0 0 12px rgba(57,255,106,0.5);
+      word-break: break-all;
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--green-dim);
+      color: #3a5028;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      padding: 6px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .copy-btn:hover { border-color: var(--green); color: var(--green); }
+    .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+    /* ── STATUS STRIP ── */
+    .status-strip {
+      display: flex;
+      gap: 10px;
+    }
+
+    .status-tile {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .tile-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .tile-value {
+      font-family: var(--mono);
+      font-size: 18px;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .tile-value.active { color: var(--amber); text-shadow: 0 0 8px rgba(245,166,35,0.5); }
+
+    /* ── PEER LIST ── */
+    .peer-section {
+      flex: 1;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .peer-header {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .peer-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .peer-list::-webkit-scrollbar { width: 4px; }
+    .peer-list::-webkit-scrollbar-track { background: transparent; }
+    .peer-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .peer-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--panel2);
+      border-radius: 3px;
+      border: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+
+    .peer-item.transmitting {
+      border-color: var(--amber-dim);
+      background: #1f1a0f;
+      animation: pulse-bg 0.8s ease-in-out infinite;
+    }
+
+    @keyframes pulse-bg {
+      0%, 100% { background: #1f1a0f; }
+      50% { background: #251f0e; }
+    }
+
+    .peer-led {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green-dim);
+      flex-shrink: 0;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .peer-item.transmitting .peer-led {
+      background: var(--amber);
+      box-shadow: 0 0 6px var(--amber);
+    }
+
+    .peer-id {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-dim);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .peer-status {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .peer-item.transmitting .peer-status {
+      color: var(--amber);
+    }
+
+    .no-peers {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 20px;
+      line-height: 1.8;
+    }
+
+    /* ── SELF ITEM ── */
+    .peer-item.self .peer-led { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .peer-item.self .peer-id { color: var(--text); }
+    .peer-item.self.transmitting { border-color: var(--red); background: #1f0f0f; }
+    .peer-item.self.transmitting .peer-led { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .peer-item.self.transmitting .peer-status { color: var(--red); }
+
+    /* ── VU METER ── */
+    .vu-section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px 16px;
+    }
+
+    .vu-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .vu-bar-container {
+      display: flex;
+      gap: 3px;
+      height: 16px;
+      align-items: flex-end;
+    }
+
+    .vu-seg {
+      flex: 1;
+      background: var(--border);
+      border-radius: 1px;
+      transition: background 0.06s;
+    }
+
+    .vu-seg.active-green { background: var(--green); box-shadow: 0 0 4px rgba(57,255,106,0.4); }
+    .vu-seg.active-amber { background: var(--amber); box-shadow: 0 0 4px rgba(245,166,35,0.4); }
+    .vu-seg.active-red   { background: var(--red);   box-shadow: 0 0 4px rgba(255,64,64,0.4); }
+
+    /* ── PTT BUTTON ── */
+    .ptt-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 8px;
+    }
+
+    .ptt-hint {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .ptt-btn {
+      width: 100%;
+      height: 80px;
+      background: var(--panel2);
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--ui);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.1s, color 0.1s, background 0.1s;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    .ptt-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(255,255,255,0.04) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .ptt-btn:not(:disabled):hover { border-color: #4a4a4a; }
+
+    .ptt-btn.talking {
+      background: #1f0c0c;
+      border-color: var(--red);
+      color: var(--red);
+      text-shadow: 0 0 12px rgba(255,64,64,0.6);
+      animation: ptt-pulse 0.6s ease-in-out infinite;
+    }
+
+    .ptt-btn.talking::after { opacity: 1; }
+
+    @keyframes ptt-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,64,64,0.0), inset 0 0 20px rgba(255,64,64,0.05); }
+      50% { box-shadow: 0 0 0 4px rgba(255,64,64,0.15), inset 0 0 30px rgba(255,64,64,0.12); }
+    }
+
+    .ptt-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* ── CONNECTING STATE ── */
+    .connecting-overlay {
+      position: fixed; inset: 0;
+      background: rgba(10,11,12,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+    }
+
+    .connecting-overlay.hidden { display: none; }
+
+    .spinner {
+      width: 32px; height: 32px;
+      border: 2px solid var(--border);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .connecting-text {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      color: var(--amber);
+      text-transform: uppercase;
+    }
+
+    /* scrollable on short screens */
+    @media (max-height: 640px) {
+      #radio-screen { overflow-y: auto; }
+      .peer-section { min-height: 80px; flex: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════ ENTRY SCREEN ══════════ -->
+<div id="entry-screen">
+  <div class="logo">SQUELCH</div>
+  <div class="logo-sub">P2P Radio — No servers. No accounts.</div>
+
+  <div class="entry-card">
+    <div>
+      <div class="field-label">Channel Code</div>
+      <input
+        type="text"
+        id="channel-input"
+        class="channel-input"
+        placeholder="ALPHA-7"
+        maxlength="24"
+        autocomplete="off"
+        spellcheck="false"
+      >
+    </div>
+    <div class="channel-hint">
+      Share this code with others to join the same channel.
+      Anyone with the code can listen and transmit.
+    </div>
+    <div class="btn-row">
+      <button class="btn-gen" id="btn-gen">Generate</button>
+      <button class="btn-connect" id="btn-connect">Connect →</button>
+    </div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+</div>
+
+<!-- ══════════ RADIO SCREEN ══════════ -->
+<div id="radio-screen">
+  <div class="top-bar">
+    <div class="top-logo">SQUELCH</div>
+    <button class="btn-disconnect" id="btn-disconnect">Disconnect</button>
+  </div>
+
+  <div class="display-panel">
+    <div class="channel-readout">
+      <div class="readout-label">Active Channel</div>
+      <div class="readout-value" id="channel-display">—</div>
+    </div>
+    <button class="copy-btn" id="copy-btn">Copy</button>
+  </div>
+
+  <div class="status-strip">
+    <div class="status-tile">
+      <div class="tile-label">Peers</div>
+      <div class="tile-value" id="peer-count">0</div>
+    </div>
+    <div class="status-tile">
+      <div class="tile-label">Status</div>
+      <div class="tile-value" id="status-display">STANDBY</div>
+    </div>
+    <div class="status-tile">
+      <div class="tile-label">Network</div>
+      <div class="tile-value active" id="network-display">P2P</div>
+    </div>
+  </div>
+
+  <div class="peer-section">
+    <div class="peer-header">Stations on channel</div>
+    <div class="peer-list" id="peer-list"></div>
+  </div>
+
+  <div class="vu-section">
+    <div class="vu-label">Audio Level</div>
+    <div class="vu-bar-container" id="vu-bars"></div>
+  </div>
+
+  <div class="ptt-zone">
+    <div class="ptt-hint">Hold to transmit · Space bar shortcut</div>
+    <button class="ptt-btn" id="ptt-btn" disabled>
+      PUSH TO TALK
+    </button>
+  </div>
+</div>
+
+<!-- ══════════ CONNECTING OVERLAY ══════════ -->
+<div class="connecting-overlay hidden" id="connecting-overlay">
+  <div class="spinner"></div>
+  <div class="connecting-text" id="connecting-text">Joining channel...</div>
+</div>
+
+<!-- ══════════ APP LOGIC ══════════ -->
+<script type="module">
+import { joinRoom } from 'https://esm.sh/trystero@0.21.0/torrent';
+
+// ── State ──────────────────────────────────────────────
+let room = null;
+let micStream = null;
+let analyser = null;
+let audioCtx = null;
+let sendStatusFn = null;
+let addStreamFn = null;
+let isTransmitting = false;
+let selfId = null;
+const peers = new Map(); // peerId → { transmitting, audioEl }
+
+// ── DOM refs ───────────────────────────────────────────
+const entryScreen     = document.getElementById('entry-screen');
+const radioScreen     = document.getElementById('radio-screen');
+const channelInput    = document.getElementById('channel-input');
+const btnConnect      = document.getElementById('btn-connect');
+const btnGen          = document.getElementById('btn-gen');
+const errorMsg        = document.getElementById('error-msg');
+const connectingOvl   = document.getElementById('connecting-overlay');
+const connectingText  = document.getElementById('connecting-text');
+const channelDisplay  = document.getElementById('channel-display');
+const copyBtn         = document.getElementById('copy-btn');
+const peerCountEl     = document.getElementById('peer-count');
+const statusDisplay   = document.getElementById('status-display');
+const peerList        = document.getElementById('peer-list');
+const pttBtn          = document.getElementById('ptt-btn');
+const btnDisconnect   = document.getElementById('btn-disconnect');
+const vuBarsEl        = document.getElementById('vu-bars');
+
+// ── VU Meter ───────────────────────────────────────────
+const VU_SEGMENTS = 20;
+const VU_GREEN_UP_TO = 14;
+const VU_AMBER_UP_TO = 18;
+
+for (let i = 0; i < VU_SEGMENTS; i++) {
+  const seg = document.createElement('div');
+  seg.className = 'vu-seg';
+  vuBarsEl.appendChild(seg);
+}
+
+let vuAnimFrame = null;
+
+function startVU(stream) {
+  stopVU();
+  if (!stream) return;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.7;
+    src.connect(analyser);
+    drawVU();
+  } catch (e) { /* no analyser */ }
+}
+
+function drawVU() {
+  if (!analyser) return;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  const avg = data.slice(0, 60).reduce((a, b) => a + b, 0) / 60;
+  const level = Math.round((avg / 255) * VU_SEGMENTS);
+  const segs = vuBarsEl.querySelectorAll('.vu-seg');
+  segs.forEach((seg, i) => {
+    seg.className = 'vu-seg';
+    if (i < level) {
+      if (i < VU_GREEN_UP_TO) seg.classList.add('active-green');
+      else if (i < VU_AMBER_UP_TO) seg.classList.add('active-amber');
+      else seg.classList.add('active-red');
+    }
+  });
+  vuAnimFrame = requestAnimationFrame(drawVU);
+}
+
+function stopVU() {
+  if (vuAnimFrame) { cancelAnimationFrame(vuAnimFrame); vuAnimFrame = null; }
+  if (audioCtx) { try { audioCtx.close(); } catch(_) {} audioCtx = null; }
+  analyser = null;
+  vuBarsEl.querySelectorAll('.vu-seg').forEach(s => s.className = 'vu-seg');
+}
+
+// ── Peer UI ─────────────────────────────────────────────
+function shortId(id) {
+  return id ? id.slice(0, 8).toUpperCase() : '????????';
+}
+
+function renderPeerList() {
+  peerList.innerHTML = '';
+
+  // Self item
+  const selfItem = document.createElement('div');
+  selfItem.className = 'peer-item self' + (isTransmitting ? ' transmitting' : '');
+  selfItem.id = 'self-peer-item';
+  selfItem.innerHTML = `
+    <div class="peer-led"></div>
+    <div class="peer-id">${selfId ? shortId(selfId) : 'YOU'} <span style="color:var(--text-dim);font-size:10px">(you)</span></div>
+    <div class="peer-status">${isTransmitting ? 'TX' : 'RX'}</div>
+  `;
+  peerList.appendChild(selfItem);
+
+  if (peers.size === 0) {
+    const noP = document.createElement('div');
+    noP.className = 'no-peers';
+    noP.innerHTML = 'Waiting for others to join...<br><span style="font-size:9px;letter-spacing:0.2em">SHARE THE CHANNEL CODE</span>';
+    peerList.appendChild(noP);
+  } else {
+    peers.forEach((state, peerId) => {
+      const item = document.createElement('div');
+      item.className = 'peer-item' + (state.transmitting ? ' transmitting' : '');
+      item.innerHTML = `
+        <div class="peer-led"></div>
+        <div class="peer-id">${shortId(peerId)}</div>
+        <div class="peer-status">${state.transmitting ? 'TALKING' : 'STANDBY'}</div>
+      `;
+      peerList.appendChild(item);
+    });
+  }
+
+  peerCountEl.textContent = peers.size;
+}
+
+function updateStatusDisplay() {
+  const anyRx = [...peers.values()].some(p => p.transmitting);
+  if (isTransmitting) {
+    statusDisplay.textContent = 'TX';
+    statusDisplay.style.color = 'var(--red)';
+  } else if (anyRx) {
+    statusDisplay.textContent = 'RX';
+    statusDisplay.style.color = 'var(--amber)';
+  } else {
+    statusDisplay.textContent = 'STANDBY';
+    statusDisplay.style.color = 'var(--text)';
+  }
+}
+
+// ── Connect ─────────────────────────────────────────────
+async function connect(channelCode) {
+  showOverlay('Requesting microphone...');
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (e) {
+    hideOverlay();
+    showError('Microphone access denied. Please allow mic access and try again.');
+    return;
+  }
+
+  micStream = stream;
+  micStream.getAudioTracks()[0].enabled = false; // start muted
+
+  showOverlay('Joining channel...');
+
+  try {
+    room = joinRoom({ appId: 'squelch-p2p-radio-v1' }, channelCode);
+  } catch (e) {
+    hideOverlay();
+    showError('Failed to connect. Check your network and try again.');
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    return;
+  }
+
+  // Grab selfId — Trystero exposes it on the room
+  selfId = room.selfId || null;
+
+  // Peer events
+  room.onPeerJoin(peerId => {
+    peers.set(peerId, { transmitting: false, audioEl: null });
+    renderPeerList();
+  });
+
+  room.onPeerLeave(peerId => {
+    const state = peers.get(peerId);
+    if (state?.audioEl) {
+      state.audioEl.srcObject = null;
+      state.audioEl.remove();
+    }
+    peers.delete(peerId);
+    renderPeerList();
+    updateStatusDisplay();
+  });
+
+  // Status data channel
+  const [sendStatus, onStatus] = room.makeAction('status');
+  sendStatusFn = sendStatus;
+
+  onStatus((data, peerId) => {
+    if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
+    peers.get(peerId).transmitting = !!data.transmitting;
+    renderPeerList();
+    updateStatusDisplay();
+  });
+
+  // Audio stream
+  const [addStream, onStream] = room.addStream();
+  addStreamFn = addStream;
+
+  // Share our mic stream (muted until PTT)
+  addStream(micStream);
+
+  onStream((incomingStream, peerId) => {
+    if (!peers.has(peerId)) peers.set(peerId, { transmitting: false, audioEl: null });
+    const state = peers.get(peerId);
+
+    // Reuse or create audio element
+    if (!state.audioEl) {
+      state.audioEl = new Audio();
+      state.audioEl.autoplay = true;
+      document.body.appendChild(state.audioEl);
+    }
+    state.audioEl.srcObject = incomingStream;
+    state.audioEl.play().catch(() => {});
+
+    renderPeerList();
+  });
+
+  // Switch screens
+  hideOverlay();
+  entryScreen.style.display = 'none';
+  radioScreen.style.display = 'flex';
+  channelDisplay.textContent = channelCode.toUpperCase();
+
+  pttBtn.disabled = false;
+  startVU(micStream);
+  renderPeerList();
+  updateStatusDisplay();
+}
+
+// ── Disconnect ──────────────────────────────────────────
+function disconnect() {
+  stopVU();
+  stopTransmit();
+  if (room) { try { room.leave(); } catch(_) {} room = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  peers.forEach(state => {
+    if (state.audioEl) { state.audioEl.srcObject = null; state.audioEl.remove(); }
+  });
+  peers.clear();
+  sendStatusFn = null;
+  addStreamFn = null;
+  isTransmitting = false;
+  selfId = null;
+  pttBtn.disabled = true;
+
+  radioScreen.style.display = 'none';
+  entryScreen.style.display = 'flex';
+}
+
+// ── PTT ─────────────────────────────────────────────────
+function startTransmit() {
+  if (!micStream || isTransmitting) return;
+  isTransmitting = true;
+
+  // Resume AudioContext if suspended (browser policy)
+  if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {});
+
+  micStream.getAudioTracks()[0].enabled = true;
+  sendStatusFn?.({ transmitting: true });
+
+  pttBtn.classList.add('talking');
+  pttBtn.textContent = '● TRANSMITTING';
+  renderPeerList();
+  updateStatusDisplay();
+}
+
+function stopTransmit() {
+  if (!isTransmitting) return;
+  isTransmitting = false;
+  if (micStream) micStream.getAudioTracks()[0].enabled = false;
+  sendStatusFn?.({ transmitting: false });
+
+  pttBtn.classList.remove('talking');
+  pttBtn.textContent = 'PUSH TO TALK';
+  renderPeerList();
+  updateStatusDisplay();
+}
+
+// ── Overlay helpers ─────────────────────────────────────
+function showOverlay(msg) {
+  connectingText.textContent = msg;
+  connectingOvl.classList.remove('hidden');
+}
+function hideOverlay() { connectingOvl.classList.add('hidden'); }
+
+// ── Error ───────────────────────────────────────────────
+function showError(msg) { errorMsg.textContent = msg; }
+function clearError()   { errorMsg.textContent = ''; }
+
+// ── Entry screen events ─────────────────────────────────
+function randomCode() {
+  const words = ['ALPHA','BRAVO','DELTA','ECHO','FOXTROT','GOLF','HOTEL',
+                 'INDIA','KILO','LIMA','MIKE','OSCAR','PAPA','ROMEO',
+                 'SIERRA','TANGO','VICTOR','XRAY','YANKEE','ZULU'];
+  const n = Math.floor(Math.random() * 90 + 10);
+  return `${words[Math.floor(Math.random() * words.length)]}-${n}`;
+}
+
+btnGen.addEventListener('click', () => {
+  channelInput.value = randomCode();
+  clearError();
+});
+
+channelInput.addEventListener('input', clearError);
+
+channelInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') btnConnect.click();
+});
+
+btnConnect.addEventListener('click', async () => {
+  const code = channelInput.value.trim().toUpperCase().replace(/[^A-Z0-9\-_]/g, '');
+  if (!code) { showError('Enter a channel code first.'); return; }
+  clearError();
+  await connect(code);
+});
+
+// ── Radio screen events ─────────────────────────────────
+btnDisconnect.addEventListener('click', disconnect);
+
+copyBtn.addEventListener('click', () => {
+  const code = channelDisplay.textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    copyBtn.textContent = 'Copied!';
+    copyBtn.classList.add('copied');
+    setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied'); }, 1800);
+  }).catch(() => {
+    copyBtn.textContent = 'Copy';
+  });
+});
+
+// PTT button — mouse/touch
+pttBtn.addEventListener('mousedown', e => { e.preventDefault(); startTransmit(); });
+pttBtn.addEventListener('mouseup', stopTransmit);
+pttBtn.addEventListener('mouseleave', stopTransmit);
+pttBtn.addEventListener('touchstart', e => { e.preventDefault(); startTransmit(); }, { passive: false });
+pttBtn.addEventListener('touchend', e => { e.preventDefault(); stopTransmit(); }, { passive: false });
+pttBtn.addEventListener('touchcancel', stopTransmit);
+
+// PTT — keyboard (spacebar)
+let spaceHeld = false;
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !spaceHeld && radioScreen.style.display !== 'none') {
+    e.preventDefault();
+    spaceHeld = true;
+    startTransmit();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space') {
+    spaceHeld = false;
+    stopTransmit();
+  }
+});
+
+// ── Init: pre-fill with random code ────────────────────
+channelInput.value = randomCode();
+</script>
+</body>
+</html>
